@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudCast - Rainfall Prediction</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .card-shadow {
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+        .loading {
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .confidence-high { background-color: #d1fae5; color: #065f46; }
+        .confidence-medium { background-color: #fef3c7; color: #92400e; }
+        .confidence-low { background-color: #fee2e2; color: #991b1b; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- Header -->
+    <header class="gradient-bg text-white py-6">
+        <div class="container mx-auto px-4">
+            <h1 class="text-4xl font-bold text-center">
+                ☁️ CloudCast
+            </h1>
+            <p class="text-center mt-2 text-lg opacity-90">
+                Rainfall Prediction & Accuracy Analyzer
+            </p>
+            <p class="text-center mt-1 text-sm opacity-75">
+                Trained on Historical Data (1901-2023) | Predicts Any Year
+            </p>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-8">
+        <!-- Input Form -->
+        <div class="max-w-2xl mx-auto mb-8">
+            <div class="bg-white rounded-lg shadow-lg p-6 card-shadow">
+                <h2 class="text-2xl font-semibold mb-6 text-gray-800">Make a Prediction</h2>
+                
+                <form id="predictionForm" class="space-y-4">
+                    <!-- Region Selection -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Select Region
+                        </label>
+                        <select id="regionSelect" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">Choose a region...</option>
+                        </select>
+                    </div>
+
+                    <!-- Year Input -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Enter Year
+                        </label>
+                        <input type="number" id="yearInput" min="1800" max="2100" value="2024" 
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="Enter any year (1800-2100)">
+                        <p class="text-xs text-gray-500 mt-1">
+                            📊 Historical data (1901-2023): High accuracy<br>
+                            🔮 Future predictions (2024+): Based on trend analysis
+                        </p>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <button type="submit" id="predictBtn" 
+                            class="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 transition duration-200 font-medium">
+                        🔮 Predict Rainfall
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Loading -->
+        <div id="loading" class="hidden text-center py-8">
+            <div class="inline-block w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full loading"></div>
+            <p class="mt-2 text-gray-600">Analyzing weather patterns...</p>
+        </div>
+
+        <!-- Results -->
+        <div id="results" class="hidden">
+            <!-- Summary Card -->
+            <div class="bg-white rounded-lg shadow-lg p-6 mb-6 card-shadow">
+                <h3 class="text-xl font-semibold mb-4 text-gray-800">Prediction Summary</h3>
+                <div id="summaryContent"></div>
+            </div>
+
+            <!-- Monthly Predictions Table -->
+            <div class="bg-white rounded-lg shadow-lg p-6 mb-6 card-shadow">
+                <h3 class="text-xl font-semibold mb-4 text-gray-800">Monthly Rainfall Predictions</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full border-collapse">
+                        <thead>
+                            <tr class="bg-gray-50">
+                                <th class="border border-gray-200 px-4 py-2 text-left">Month</th>
+                                <th class="border border-gray-200 px-4 py-2 text-center">Predicted (mm)</th>
+                                <th class="border border-gray-200 px-4 py-2 text-center">Actual (mm)</th>
+                                <th class="border border-gray-200 px-4 py-2 text-center">Error (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="monthlyTable">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Chart -->
+            <div class="bg-white rounded-lg shadow-lg p-6 card-shadow">
+                <h3 class="text-xl font-semibold mb-4 text-gray-800">Rainfall Visualization</h3>
+                <canvas id="rainfallChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+
+        <!-- Error Message -->
+        <div id="errorMessage" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded max-w-2xl mx-auto">
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-white py-6 mt-12">
+        <div class="container mx-auto px-4 text-center">
+            <p>&copy; 2024 CloudCast. Built for rainfall prediction analysis.</p>
+        </div>
+    </footer>
+
+    <script>
+        let currentChart = null;
+
+        // Load available regions on page load
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                const response = await fetch('/api/regions');
+                const regions = await response.json();
+                
+                const regionSelect = document.getElementById('regionSelect');
+                regions.forEach(region => {
+                    const option = document.createElement('option');
+                    option.value = region;
+                    option.textContent = region;
+                    regionSelect.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Failed to load regions:', error);
+            }
+        });
+
+        document.getElementById('predictionForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const region = document.getElementById('regionSelect').value;
+            const year = parseInt(document.getElementById('yearInput').value);
+            
+            if (!region) {
+                showError('Please select a region');
+                return;
+            }
+            
+            if (!year || year < 1800 || year > 2100) {
+                showError('Please enter a valid year (1800-2100)');
+                return;
+            }
+            
+            // Show loading
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('results').classList.add('hidden');
+            document.getElementById('errorMessage').classList.add('hidden');
+            
+            try {
+                const response = await fetch('/api/predict', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ region, year })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to get prediction');
+                }
+                
+                const data = await response.json();
+                displayResults(data);
+                
+            } catch (error) {
+                showError('Error making prediction: ' + error.message);
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+            }
+        });
+
+        function displayResults(data) {
+            // Show results section
+            document.getElementById('results').classList.remove('hidden');
+            
+            // Get confidence class
+            const confidenceClass = data.confidence.includes('High') ? 'confidence-high' : 
+                                  data.confidence.includes('Medium') ? 'confidence-medium' : 'confidence-low';
+            
+            // Display summary
+            const summaryContent = document.getElementById('summaryContent');
+            summaryContent.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div class="bg-blue-50 p-4 rounded-lg">
+                        <h4 class="font-semibold text-blue-800">Region</h4>
+                        <p class="text-xl text-blue-600">${data.region}</p>
+                    </div>
+                    <div class="bg-green-50 p-4 rounded-lg">
+                        <h4 class="font-semibold text-green-800">Year</h4>
+                        <p class="text-xl text-green-600">${data.year}</p>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-purple-50 p-4 rounded-lg">
+                        <h4 class="font-semibold text-purple-800">Annual Prediction</h4>
+                        <p class="text-xl text-purple-600">${data.annual_prediction} mm</p>
+                    </div>
+                    <div class="p-4 rounded-lg ${confidenceClass}">
+                        <h4 class="font-semibold">Prediction Confidence</h4>
+                        <p class="text-lg font-medium">${data.confidence}</p>
+                    </div>
+                </div>
+                
+                <div class="mt-4 p-3 bg-gray-50 rounded-lg">
+                    <p class="text-sm text-gray-600">📈 ${data.data_range}</p>
+                </div>
+                
+                ${data.overall_error.actual_annual !== 'N/A' ? `
+                <div class="mt-4 p-4 bg-gray-50 rounded-lg">
+                    <h4 class="font-semibold text-gray-800 mb-2">Accuracy Metrics</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <span class="text-sm text-gray-600">Actual Annual Rainfall:</span>
+                            <span class="font-semibold">${data.overall_error.actual_annual} mm</span>
+                        </div>
+                        <div>
+                            <span class="text-sm text-gray-600">Prediction Error:</span>
+                            <span class="font-semibold">${data.overall_error.percentage_error}%</span>
+                        </div>
+                    </div>
+                </div>
+                ` : ''}
+            `;
+            
+            // Display monthly table
+            const monthlyTable = document.getElementById('monthlyTable');
+            const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                              'July', 'August', 'September', 'October', 'November', 'December'];
+            
+            monthlyTable.innerHTML = months.map((month, index) => {
+                const pred = data.predictions[month];
+                const error = data.errors[month];
+                
+                return `
+                    <tr class="hover:bg-gray-50">
+                        <td class="border border-gray-200 px-4 py-2 font-medium">${monthNames[index]}</td>
+                        <td class="border border-gray-200 px-4 py-2 text-center">${pred}</td>
+                        <td class="border border-gray-200 px-4 py-2 text-center">${error.actual}</td>
+                        <td class="border border-gray-200 px-4 py-2 text-center">
+                            ${error.percentage_error !== 'N/A' ? 
+                                `<span class="px-2 py-1 rounded text-sm ${
+                                    error.percentage_error < 20 ? 'bg-green-100 text-green-800' :
+                                    error.percentage_error < 50 ? 'bg-yellow-100 text-yellow-800' :
+                                    'bg-red-100 text-red-800'
+                                }">${error.percentage_error}%</span>` : 
+                                '<span class="text-gray-500">N/A</span>'
+                            }
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            
+            // Create chart
+            createChart(data);
+        }
+
+        function createChart(data) {
+            const ctx = document.getElementById('rainfallChart').getContext('2d');
+            
+            // Destroy existing chart
+            if (currentChart) {
+                currentChart.destroy();
+            }
+            
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const monthKeys = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+            
+            const predictedData = monthKeys.map(month => data.predictions[month] === 'N/A' ? 0 : data.predictions[month]);
+            const actualData = monthKeys.map(month => {
+                const actual = data.errors[month].actual;
+                return actual === 'N/A' ? null : actual;
+            });
+            
+            currentChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: months,
+                    datasets: [
+                        {
+                            label: 'Predicted Rainfall',
+                            data: predictedData,
+                            borderColor: 'rgb(59, 130, 246)',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        },
+                        ...(actualData.some(val => val !== null) ? [{
+                            label: 'Actual Rainfall',
+                            data: actualData,
+                            borderColor: 'rgb(16, 185, 129)',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            tension: 0.4,
+                            fill: false
+                        }] : [])
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: `Rainfall Prediction - ${data.region} (${data.year})`
+                        },
+                        legend: {
+                            display: true
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Rainfall (mm)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Months'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+            document.getElementById('results').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
